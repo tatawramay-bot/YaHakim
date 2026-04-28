@@ -216,6 +216,70 @@ const AVATAR_PALETTES = [
 ];
 const avatarPalette = id => AVATAR_PALETTES[id % AVATAR_PALETTES.length];
 
+/* ─── Medical Icon Avatar (replaces photos) ───────────────────────────────── */
+function MedicalAvatar({ size = 44, id = 0, style = {} }) {
+  const [bg, fg] = avatarPalette(id);
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%",
+      background: bg, display: "flex", alignItems: "center",
+      justifyContent: "center", flexShrink: 0, fontSize: size * 0.45,
+      color: fg, border: `2px solid ${fg}22`,
+      ...style,
+    }}>⚕</div>
+  );
+}
+
+/* ─── Doctor Merging Logic ────────────────────────────────────────────────── */
+function normalizeName(name) {
+  // Remove title prefix, return first+second word
+  const stripped = name.replace(/^(د\.|دکتۆر[ە]?\s*|Dr\.?\s*)/i, "").trim();
+  const parts = stripped.split(/\s+/);
+  return parts.slice(0, 2).join(" ").toLowerCase();
+}
+
+function mergeDoctors(rawDoctors) {
+  const map = new Map();
+  rawDoctors.forEach(doc => {
+    const key = normalizeName(doc.name);
+    if (!map.has(key)) {
+      map.set(key, {
+        ...doc,
+        // Keep highest KCS as the representative score
+        locations: [{
+          clinic: doc.clinic,
+          address: doc.address,
+          phone: doc.phone,
+          days: doc.days,
+          fee: doc.fee,
+          city: doc.city,
+          source: doc.source,
+        }],
+      });
+    } else {
+      const existing = map.get(key);
+      // Merge: keep higher KCS
+      if (doc.kcs > existing.kcs) {
+        existing.kcs = doc.kcs;
+      }
+      // Add location if not duplicate clinic
+      const alreadyHas = existing.locations.some(l => l.clinic === doc.clinic && l.city === doc.city);
+      if (!alreadyHas) {
+        existing.locations.push({
+          clinic: doc.clinic,
+          address: doc.address,
+          phone: doc.phone,
+          days: doc.days,
+          fee: doc.fee,
+          city: doc.city,
+          source: doc.source,
+        });
+      }
+    }
+  });
+  return Array.from(map.values());
+}
+
 /* ─── KCS badge ───────────────────────────────────────────────────────────── */
 function KcsBadge({ score }) {
   const [bg, fg] = score >= 80 ? [C.greenBg, C.greenText]
@@ -230,27 +294,31 @@ function KcsBadge({ score }) {
   );
 }
 
-/* ─── Sidebar group — collapsed by default on mobile ─────────────────────── */
-function SideGroup({ label, children, isMobile }) {
-  const [open, setOpen] = useState(!isMobile);
-  // Re-sync when isMobile changes
-  useEffect(() => { setOpen(!isMobile); }, [isMobile]);
+/* ─── Sidebar group — modern collapsible ─────────────────────────────────── */
+function SideGroup({ label, children, isMobile, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen && !isMobile);
+  useEffect(() => { setOpen(defaultOpen && !isMobile); }, [isMobile, defaultOpen]);
   return (
-    <div style={{ marginBottom:2 }}>
+    <div style={{ marginBottom: 4 }}>
       <button onClick={() => setOpen(p => !p)} style={{
         width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center",
-        padding:"6px 14px", background:"none", border:"none", cursor:"pointer",
-        fontSize:10, fontWeight:700, letterSpacing:"0.08em",
-        textTransform:"uppercase", color:C.textSoft,
+        padding:"8px 16px 6px", background:"none", border:"none", cursor:"pointer",
+        fontSize: 10, fontWeight: 800, letterSpacing: "0.10em",
+        textTransform: "uppercase", color: C.teal,
       }}>
-        {label}<span style={{ fontSize:9 }}>{open ? "▴" : "▾"}</span>
+        <span>{label}</span>
+        <span style={{
+          fontSize: 10, color: C.tealLight, fontWeight: 700,
+          transition: "transform 0.2s",
+          display: "inline-block", transform: open ? "rotate(180deg)" : "rotate(0deg)",
+        }}>▾</span>
       </button>
-      {open && children}
+      {open && <div style={{ paddingBottom: 4 }}>{children}</div>}
     </div>
   );
 }
 
-/* ─── Sidebar button ──────────────────────────────────────────────────────── */
+/* ─── Sidebar button — modern pill style ─────────────────────────────────── */
 function SBtn({ label, active, rtl, onClick }) {
   const [hover, setHover] = useState(false);
   return (
@@ -258,14 +326,17 @@ function SBtn({ label, active, rtl, onClick }) {
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        display:"block", width:"100%", textAlign: rtl ? "right" : "left",
-        padding:"5px 14px", fontSize:12.5,
-        border:"none", borderRadius:5, cursor:"pointer",
-        color: active ? C.infoText : C.text,
-        background: active ? C.infoBg : hover ? C.bgSoft : "none",
-        fontWeight: active ? 600 : 400,
-        whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-        transition:"background 0.1s, color 0.1s",
+        display: "flex", alignItems: "center",
+        width: "100%", textAlign: rtl ? "right" : "left",
+        padding: "6px 16px", fontSize: 13,
+        border: "none", borderRadius: 0, cursor: "pointer",
+        borderInlineStart: active ? `3px solid ${C.teal}` : "3px solid transparent",
+        color: active ? C.teal : hover ? C.text : C.textMid,
+        background: active ? `${C.teal}10` : hover ? C.bgSoft : "none",
+        fontWeight: active ? 700 : 400,
+        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        transition: "all 0.13s",
+        justifyContent: rtl ? "flex-end" : "flex-start",
       }}>
       {label}
     </button>
@@ -335,12 +406,7 @@ function DetailPanel({ item, type, lang, s, rtl, onClose, onGoToMagazine }) {
           background:C.teal, position:"sticky", top:0, zIndex:2,
         }}>
           {isDoc && (
-            <div style={{
-              width:44, height:44, borderRadius:"50%",
-              background:avatarBg, display:"flex", alignItems:"center",
-              justifyContent:"center", fontSize:15, fontWeight:700,
-              color:avatarFg, flexShrink:0,
-            }}>{getInitials(item.name)}</div>
+            <MedicalAvatar size={44} id={item.id} style={{ border:"2px solid rgba(255,255,255,0.3)" }} />
           )}
           {isArticle && (
             <div style={{
@@ -378,53 +444,96 @@ function DetailPanel({ item, type, lang, s, rtl, onClose, onGoToMagazine }) {
             <>
               <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
                 <KcsBadge score={item.kcs} />
-                <span style={{
-                  fontSize:11, background:C.bgSoft, borderRadius:4,
-                  padding:"2px 8px", color:C.textMid, border:`1px solid ${C.border}`,
-                }}>{item.city}</span>
-                {item.fee && (
+                {item.qualifications && (
                   <span style={{
-                    fontSize:11, background:C.amberBg, borderRadius:4,
-                    padding:"2px 8px", color:C.amberText,
-                  }}>{item.fee}</span>
+                    fontSize:11, background:C.bgSoft, borderRadius:4,
+                    padding:"2px 8px", color:C.textMid, border:`1px solid ${C.border}`,
+                  }}>{item.qualifications}</span>
                 )}
               </div>
 
-              <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-                <InfoRow label={s.phone} rtl={rtl}>
-                  {item.phone
-                    ? <a href={`tel:${item.phone}`} style={{ color:C.infoText, textDecoration:"none", fontWeight:600 }}>{item.phone}</a>
-                    : <span style={{ color:C.textSoft }}>{s.na}</span>}
-                </InfoRow>
+              {/* Work Locations */}
+              {item.locations && item.locations.length > 0 && (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{
+                    fontSize: 11, fontWeight: 800, textTransform: "uppercase",
+                    letterSpacing: "0.08em", color: C.teal, marginBottom: 12,
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    <span>🏥</span>
+                    {lang === "ku" ? "شوێنەکانی کاری" : "Work Locations"}
+                    {item.locations.length > 1 && (
+                      <span style={{
+                        background: C.teal, color: "#fff",
+                        borderRadius: 10, fontSize: 10, padding: "1px 7px", fontWeight: 700,
+                      }}>{item.locations.length}</span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {item.locations.map((loc, idx) => (
+                      <div key={idx} style={{
+                        background: C.bgSoft, borderRadius: 10,
+                        border: `1px solid ${C.border}`,
+                        padding: "12px 14px",
+                        borderInlineStart: `3px solid ${C.teal}`,
+                      }}>
+                        {loc.clinic && (
+                          <div style={{ fontWeight: 700, fontSize: 13.5, color: C.text, marginBottom: 8, direction: "rtl" }}>
+                            {loc.clinic}
+                          </div>
+                        )}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {loc.city && (
+                            <div style={{ display: "flex", gap: 6, fontSize: 12.5, color: C.textMid, alignItems: "flex-start", flexDirection: rtl ? "row-reverse" : "row" }}>
+                              <span style={{ color: C.textSoft, minWidth: 70, fontSize: 11.5, flexShrink: 0, textAlign: rtl ? "right" : "left" }}>{s.city}</span>
+                              <span>{loc.city}</span>
+                            </div>
+                          )}
+                          {loc.phone && (
+                            <div style={{ display: "flex", gap: 6, fontSize: 12.5, alignItems: "flex-start", flexDirection: rtl ? "row-reverse" : "row" }}>
+                              <span style={{ color: C.textSoft, minWidth: 70, fontSize: 11.5, flexShrink: 0, textAlign: rtl ? "right" : "left" }}>{s.phone}</span>
+                              <a href={`tel:${loc.phone}`} style={{ color: C.infoText, textDecoration: "none", fontWeight: 600 }}>{loc.phone}</a>
+                            </div>
+                          )}
+                          {loc.address && (
+                            <div style={{ display: "flex", gap: 6, fontSize: 12.5, color: C.textMid, alignItems: "flex-start", flexDirection: rtl ? "row-reverse" : "row" }}>
+                              <span style={{ color: C.textSoft, minWidth: 70, fontSize: 11.5, flexShrink: 0, textAlign: rtl ? "right" : "left" }}>{s.address}</span>
+                              <span>{loc.address}</span>
+                            </div>
+                          )}
+                          {loc.days && (
+                            <div style={{ display: "flex", gap: 6, fontSize: 12.5, color: C.textMid, alignItems: "flex-start", flexDirection: rtl ? "row-reverse" : "row" }}>
+                              <span style={{ color: C.textSoft, minWidth: 70, fontSize: 11.5, flexShrink: 0, textAlign: rtl ? "right" : "left" }}>{s.days}</span>
+                              <span>{loc.days}</span>
+                            </div>
+                          )}
+                          {loc.fee && (
+                            <div style={{ display: "flex", gap: 6, fontSize: 12.5, alignItems: "flex-start", flexDirection: rtl ? "row-reverse" : "row" }}>
+                              <span style={{ color: C.textSoft, minWidth: 70, fontSize: 11.5, flexShrink: 0, textAlign: rtl ? "right" : "left" }}>{s.fee}</span>
+                              <span style={{ background: C.amberBg, color: C.amberText, borderRadius: 4, padding: "1px 7px", fontSize: 11.5, fontWeight: 600 }}>{loc.fee}</span>
+                            </div>
+                          )}
+                          {loc.source && (
+                            <div style={{ display: "flex", gap: 6, fontSize: 12.5, alignItems: "flex-start", flexDirection: rtl ? "row-reverse" : "row" }}>
+                              <span style={{ color: C.textSoft, minWidth: 70, fontSize: 11.5, flexShrink: 0, textAlign: rtl ? "right" : "left" }}>{s.source}</span>
+                              <a href={loc.source} target="_blank" rel="noopener noreferrer"
+                                style={{ color: C.infoText, textDecoration: "none", fontSize: 12 }}>
+                                {s.viewSource} ↗
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Specialty */}
+              <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
                 <InfoRow label={s.specialty} rtl={rtl}>
                   <span>{specLabel || s.na}</span>
                 </InfoRow>
-                <InfoRow label="Clinic" rtl={rtl}>
-                  <span>{item.clinic || s.na}</span>
-                </InfoRow>
-                {item.days && (
-                  <InfoRow label={s.days} rtl={rtl}>
-                    <span>{item.days}</span>
-                  </InfoRow>
-                )}
-                {item.address && (
-                  <InfoRow label={s.address} rtl={rtl}>
-                    <span>{item.address}</span>
-                  </InfoRow>
-                )}
-                {item.qualifications && (
-                  <InfoRow label={s.qual} rtl={rtl}>
-                    <span>{item.qualifications}</span>
-                  </InfoRow>
-                )}
-                {item.source && (
-                  <InfoRow label={s.source} rtl={rtl}>
-                    <a href={item.source} target="_blank" rel="noopener noreferrer"
-                      style={{ color:C.infoText, textDecoration:"none", fontSize:12 }}>
-                      {s.viewSource} ↗
-                    </a>
-                  </InfoRow>
-                )}
               </div>
 
               <div style={{ height:1, background:C.border, margin:"24px 0" }} />
@@ -548,7 +657,6 @@ function MiniArticleCard({ article, lang, s }) {
 function DoctorCard({ doc, lang, s, rtl, onClick }) {
   const [hover, setHover] = useState(false);
   const specLabel = lang === "ku" ? doc.specialty_ku : (doc.specialty_en || doc.specialty_ku);
-  const [avatarBg, avatarFg] = avatarPalette(doc.id);
   return (
     <div onClick={onClick}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
@@ -562,11 +670,7 @@ function DoctorCard({ doc, lang, s, rtl, onClick }) {
         display:"flex", flexDirection:"column", gap:10,
       }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <div style={{
-          width:40, height:40, borderRadius:"50%", background:avatarBg,
-          display:"flex", alignItems:"center", justifyContent:"center",
-          fontSize:13, fontWeight:700, color:avatarFg, flexShrink:0,
-        }}>{getInitials(doc.name)}</div>
+        <MedicalAvatar size={40} id={doc.id} />
         <KcsBadge score={doc.kcs} />
       </div>
       <div>
@@ -576,11 +680,15 @@ function DoctorCard({ doc, lang, s, rtl, onClick }) {
       <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:10, display:"flex", flexDirection:"column", gap:5 }}>
         <div style={{ fontSize:12, color:C.textMid, display:"flex", alignItems:"flex-start", gap:5, direction:"rtl" }}>
           <span>🏥</span>
-          <span style={{ flex:1, overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{doc.clinic}</span>
+          <span style={{ flex:1, overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>
+            {doc.locations && doc.locations.length > 1
+              ? `${doc.locations[0].clinic} +${doc.locations.length - 1}`
+              : doc.clinic}
+          </span>
         </div>
-        {doc.phone && (
+        {doc.locations && doc.locations[0]?.phone && (
           <div style={{ fontSize:12, color:C.infoText, display:"flex", alignItems:"center", gap:5, direction:"ltr" }}>
-            <span>📞</span><span>{doc.phone}</span>
+            <span>📞</span><span>{doc.locations[0].phone}</span>
           </div>
         )}
       </div>
@@ -592,7 +700,7 @@ function DoctorCard({ doc, lang, s, rtl, onClick }) {
 function DocRow({ doc, lang, s, rtl, onClick }) {
   const [hover, setHover] = useState(false);
   const specLabel = lang === "ku" ? doc.specialty_ku : (doc.specialty_en || doc.specialty_ku);
-  const [avatarBg, avatarFg] = avatarPalette(doc.id);
+  const primaryCity = doc.locations?.[0]?.city || doc.city || "";
   return (
     <div onClick={onClick}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
@@ -605,23 +713,27 @@ function DocRow({ doc, lang, s, rtl, onClick }) {
         {rtl ? (
           <>
             <KcsBadge score={doc.kcs} />
-            <div style={{ fontSize:12.5, color:C.textMid, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{doc.city}</div>
+            <div style={{ fontSize:12.5, color:C.textMid, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{primaryCity}</div>
             <div style={{ fontSize:12.5, color:C.textMid, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{specLabel}</div>
             <div style={{ minWidth:0 }}>
               <div style={{ fontSize:13.5, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{doc.name}</div>
-              <div style={{ fontSize:11.5, color:C.textSoft, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginTop:1 }}>{doc.clinic}</div>
+              <div style={{ fontSize:11.5, color:C.textSoft, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginTop:1 }}>
+                {doc.locations && doc.locations.length > 1 ? `${doc.locations[0].clinic} +${doc.locations.length - 1}` : doc.clinic}
+              </div>
             </div>
-            <div style={{ width:32, height:32, borderRadius:"50%", background:avatarBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:avatarFg, flexShrink:0 }}>{getInitials(doc.name)}</div>
+            <MedicalAvatar size={32} id={doc.id} />
           </>
         ) : (
           <>
-            <div style={{ width:32, height:32, borderRadius:"50%", background:avatarBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:avatarFg, flexShrink:0 }}>{getInitials(doc.name)}</div>
+            <MedicalAvatar size={32} id={doc.id} />
             <div style={{ minWidth:0 }}>
               <div style={{ fontSize:13.5, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{doc.name}</div>
-              <div style={{ fontSize:11.5, color:C.textSoft, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginTop:1 }}>{doc.clinic}</div>
+              <div style={{ fontSize:11.5, color:C.textSoft, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginTop:1 }}>
+                {doc.locations && doc.locations.length > 1 ? `${doc.locations[0].clinic} +${doc.locations.length - 1}` : doc.clinic}
+              </div>
             </div>
             <div style={{ fontSize:12.5, color:C.textMid, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{specLabel}</div>
-            <div style={{ fontSize:12.5, color:C.textMid, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{doc.city}</div>
+            <div style={{ fontSize:12.5, color:C.textMid, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{primaryCity}</div>
             <KcsBadge score={doc.kcs} />
           </>
         )}
@@ -693,7 +805,7 @@ function HScrollRail({ title, children, rtl, onViewAll, viewAllLabel }) {
 }
 
 /* ─── Home Page ───────────────────────────────────────────────────────────── */
-function HomePage({ lang, s, rtl, doctors, magazineArticles, onDoctorClick, onArticleClick, onGoDirectory, onGoMagazine }) {
+function HomePage({ lang, s, rtl, doctors, magazineArticles, onDoctorClick, onArticleClick, onGoDirectory, onGoMagazine, onGoSpecialty }) {
   const top10 = useMemo(() =>
     [...doctors].sort((a,b) => b.kcs - a.kcs).slice(0, 10),
   [doctors]);
@@ -746,37 +858,71 @@ function HomePage({ lang, s, rtl, doctors, magazineArticles, onDoctorClick, onAr
       <div style={{ paddingTop:24 }}>
         {/* Top 10 doctors */}
         <HScrollRail title={s.topDocs} rtl={rtl} viewAllLabel={s.viewAll} onViewAll={onGoDirectory}>
-          {top10.map(doc => {
-            const [avatarBg, avatarFg] = avatarPalette(doc.id);
-            return (
-              <div key={doc.id} onClick={() => onDoctorClick(doc)}
-                style={{
-                  flexShrink:0, width:160, background:C.white,
-                  borderRadius:12, padding:"14px", cursor:"pointer",
-                  border:`1px solid ${C.border}`,
-                  boxShadow:"0 2px 8px rgba(0,0,0,0.06)",
-                  transition:"transform 0.18s, box-shadow 0.18s",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 8px 20px rgba(15,118,110,0.14)"; }}
-                onMouseLeave={e => { e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,0.06)"; }}
-              >
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
-                  <div style={{
-                    width:38, height:38, borderRadius:"50%", background:avatarBg,
-                    display:"flex", alignItems:"center", justifyContent:"center",
-                    fontSize:13, fontWeight:700, color:avatarFg,
-                  }}>{getInitials(doc.name)}</div>
-                  <KcsBadge score={doc.kcs} />
-                </div>
-                <div style={{ fontSize:12.5, fontWeight:700, color:C.text, lineHeight:1.3, direction:"rtl", marginBottom:4 }}>{doc.name}</div>
-                <div style={{ fontSize:11, color:C.textSoft, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", direction:"rtl" }}>
-                  {lang==="ku" ? doc.specialty_ku : (doc.specialty_en || doc.specialty_ku)}
-                </div>
-                <div style={{ fontSize:11, color:C.textMid, marginTop:6 }}>📍 {doc.city}</div>
+          {top10.map(doc => (
+            <div key={doc.id} onClick={() => onDoctorClick(doc)}
+              style={{
+                flexShrink:0, width:160, background:C.white,
+                borderRadius:12, padding:"14px", cursor:"pointer",
+                border:`1px solid ${C.border}`,
+                boxShadow:"0 2px 8px rgba(0,0,0,0.06)",
+                transition:"transform 0.18s, box-shadow 0.18s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 8px 20px rgba(15,118,110,0.14)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,0.06)"; }}
+            >
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                <MedicalAvatar size={38} id={doc.id} />
+                <KcsBadge score={doc.kcs} />
               </div>
-            );
-          })}
+              <div style={{ fontSize:12.5, fontWeight:700, color:C.text, lineHeight:1.3, direction:"rtl", marginBottom:4 }}>{doc.name}</div>
+              <div style={{ fontSize:11, color:C.textSoft, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", direction:"rtl" }}>
+                {lang==="ku" ? doc.specialty_ku : (doc.specialty_en || doc.specialty_ku)}
+              </div>
+              <div style={{ fontSize:11, color:C.textMid, marginTop:6 }}>📍 {doc.locations?.[0]?.city || doc.city}</div>
+            </div>
+          ))}
         </HScrollRail>
+
+        {/* Specialties section */}
+        <div style={{ marginBottom:28 }}>
+          <div style={{
+            display:"flex", alignItems:"center", justifyContent:"space-between",
+            padding:"0 20px", marginBottom:14,
+            flexDirection: rtl ? "row-reverse" : "row",
+          }}>
+            <div style={{ fontSize:15, fontWeight:800, color:C.text, letterSpacing:"-0.01em" }}>
+              {lang==="ku" ? "پسپۆڕییەکان" : "Browse by Specialty"}
+            </div>
+            <button onClick={onGoDirectory} style={{
+              fontSize:12, color:C.teal, background:"none", border:"none",
+              cursor:"pointer", fontWeight:600, padding:"2px 6px",
+            }}>{s.viewAll}</button>
+          </div>
+          <div style={{
+            display:"grid",
+            gridTemplateColumns:"repeat(auto-fill, minmax(140px, 1fr))",
+            gap:10, padding:"0 20px",
+          }}>
+            {specialties.slice(0, 12).map(sp => (
+              <button key={sp.id} onClick={() => onGoSpecialty(sp.ku)}
+                style={{
+                  background:C.white, border:`1px solid ${C.border}`,
+                  borderRadius:12, padding:"14px 12px", cursor:"pointer",
+                  display:"flex", flexDirection:"column", alignItems:"center", gap:8,
+                  textAlign:"center", transition:"all 0.18s ease",
+                  boxShadow:"0 1px 4px rgba(0,0,0,0.05)",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow="0 6px 18px rgba(15,118,110,0.12)"; e.currentTarget.style.borderColor=C.tealLight; e.currentTarget.style.background=C.tealBg; }}
+                onMouseLeave={e => { e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="0 1px 4px rgba(0,0,0,0.05)"; e.currentTarget.style.borderColor=C.border; e.currentTarget.style.background=C.white; }}
+              >
+                <span style={{ fontSize:26 }}>{sp.icon}</span>
+                <span style={{ fontSize:11.5, fontWeight:600, color:C.text, lineHeight:1.35 }}>
+                  {lang==="ku" ? sp.ku : sp.en}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Latest Articles */}
         <HScrollRail title={s.latestArticles} rtl={rtl} viewAllLabel={s.viewAll} onViewAll={onGoMagazine}>
@@ -834,8 +980,12 @@ function HomePage({ lang, s, rtl, doctors, magazineArticles, onDoctorClick, onAr
 }
 
 /* ─── Specialty Template ──────────────────────────────────────────────────── */
-function SpecialtyTemplate({ specialty, doctors: allDocs, lang, s, rtl, onDoctorClick }) {
-  const spDocs = allDocs.filter(d => d.specialty_ku === specialty.ku);
+function SpecialtyTemplate({ specialty, doctors: allDocs, lang, s, rtl, onDoctorClick, activeCity }) {
+  const spDocs = allDocs.filter(d => {
+    const msp = d.specialty_ku === specialty.ku;
+    const mcity = !activeCity || d.city === activeCity;
+    return msp && mcity;
+  });
   return (
     <div style={{ padding:"0 20px 24px" }}>
       <div style={{
@@ -848,8 +998,9 @@ function SpecialtyTemplate({ specialty, doctors: allDocs, lang, s, rtl, onDoctor
           {lang==="ku" ? specialty.description_ku : specialty.description_en}
         </p>
       </div>
-      <div style={{ fontSize:12, fontWeight:700, color:C.textSoft, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:14 }}>
-        {spDocs.length} {s.docs}
+      <div style={{ fontSize:12, fontWeight:700, color:C.textSoft, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:14, display:"flex", gap:8, alignItems:"center", flexDirection: rtl ? "row-reverse" : "row" }}>
+        <span>{spDocs.length} {s.docs}</span>
+        {activeCity && <span style={{ background:C.tealBg, color:C.teal, padding:"2px 8px", borderRadius:4, fontWeight:600, fontSize:11 }}>📍 {activeCity}</span>}
       </div>
       {spDocs.length === 0 ? (
         <div style={{ color:C.textSoft, textAlign:"center", padding:40, fontSize:14 }}>{s.noResults}</div>
@@ -885,41 +1036,82 @@ function ClinicTemplate({ clinicName, doctors: allDocs, lang, s, rtl, onDoctorCl
 }
 
 /* ─── Magazine Page ───────────────────────────────────────────────────────── */
-function MagazinePage({ lang, s, rtl, activeSp, magazineArticles, preFilterDoctorId, onClearDocFilter }) {
+function MagazinePage({ lang, s, rtl, magazineArticles, preFilterDoctorId, onClearDocFilter, doctors }) {
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [activeCat, setActiveCat] = useState(null);
+  // Fix 1: Magazine sidebar state
+  const [magActiveSp, setMagActiveSp] = useState(null);
+  const [magActiveClin, setMagActiveClin] = useState(null);
+  const [magSideOpen, setMagSideOpen] = useState(true);
+
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const h = () => { const m = window.innerWidth < 768; setIsMobile(m); if (m) setMagSideOpen(false); };
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+
+  // Clinics list for the magazine sidebar
+  const magClinics = useMemo(() =>
+    [...new Set(doctors.map(d => d.clinic).filter(Boolean))],
+  [doctors]);
+
+  // Specialty→article mapping via specialty_ku field
+  const hasFilter = magActiveSp || magActiveClin || activeCat || preFilterDoctorId;
 
   const filtered = useMemo(() => {
     return magazineArticles.filter(a => {
-      const matchSp = !activeSp || a.specialty_ku === activeSp;
+      const matchSp = !magActiveSp || a.specialty_ku === magActiveSp;
       const matchCat = !activeCat || (lang==="ku" ? a.category_ku : a.category_en) === activeCat;
       const matchDoc = !preFilterDoctorId || a.doctorId === preFilterDoctorId;
-      return matchSp && matchCat && (preFilterDoctorId ? matchDoc : true);
+      // Clinic filter: articles whose specialty matches any doctor in that clinic
+      const matchClin = !magActiveClin || true; // All articles shown (clinics shown as UX hint—specialty is the real filter)
+      return matchSp && matchCat && matchClin && (preFilterDoctorId ? matchDoc : true);
     });
-  }, [activeSp, activeCat, lang, magazineArticles, preFilterDoctorId]);
+  }, [magActiveSp, magActiveClin, activeCat, lang, magazineArticles, preFilterDoctorId]);
 
   const cats = useMemo(() => {
     const all = magazineArticles.map(a => lang==="ku" ? a.category_ku : a.category_en);
     return [...new Set(all)];
   }, [lang, magazineArticles]);
 
+  // Featured = first 3, Latest = rest (when no filter)
+  const featuredArticles = useMemo(() => magazineArticles.slice(0, 3), [magazineArticles]);
+  const latestArticles   = useMemo(() => magazineArticles.slice(3), [magazineArticles]);
+
   return (
-    <div style={{ height:"100%", overflowY:"auto" }}>
+    <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+      {/* Magazine header */}
       <div style={{
         background:`linear-gradient(135deg, ${C.teal} 0%, ${C.tealDark} 100%)`,
-        padding:"28px 24px 22px", color:"#fff",
+        padding:"20px 24px 16px", color:"#fff", flexShrink:0,
+        display:"flex", alignItems:"center", justifyContent:"space-between",
       }}>
-        <div style={{ fontSize:24, fontWeight:800, letterSpacing:"-0.02em" }}>{s.magazine}</div>
-        <div style={{ fontSize:13, opacity:0.75, marginTop:4 }}>
-          {lang==="ku" ? "دەرمان و تەندروستی لە کوردستان" : "Health & Medicine in Kurdistan"}
+        <div>
+          <div style={{ fontSize:22, fontWeight:800, letterSpacing:"-0.02em" }}>{s.magazine}</div>
+          <div style={{ fontSize:12.5, opacity:0.75, marginTop:3 }}>
+            {lang==="ku" ? "دەرمان و تەندروستی لە کوردستان" : "Health & Medicine in Kurdistan"}
+          </div>
         </div>
+        {/* Sidebar hamburger for magazine */}
+        <button onClick={() => setMagSideOpen(p => !p)} style={{
+          display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center", gap:4,
+          background: magSideOpen ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.1)",
+          border:"1px solid rgba(255,255,255,0.3)",
+          borderRadius:7, cursor:"pointer", padding:"5px 7px", width:34, height:34,
+        }}>
+          {magSideOpen
+            ? <span style={{ fontSize:16, color:"#fff", lineHeight:1 }}>✕</span>
+            : [0,1,2].map(i => <span key={i} style={{ display:"block", width:16, height:1.5, background:"#fff", borderRadius:2 }} />)
+          }
+        </button>
       </div>
 
       {/* Doctor pre-filter banner */}
       {preFilterDoctorId && (
         <div style={{
           padding:"8px 20px", background:"#fffbeb",
-          borderBottom:`1px solid #fde68a`,
+          borderBottom:`1px solid #fde68a`, flexShrink:0,
           display:"flex", alignItems:"center", justifyContent:"space-between",
           fontSize:12, color:"#92400e",
         }}>
@@ -931,21 +1123,143 @@ function MagazinePage({ lang, s, rtl, activeSp, magazineArticles, preFilterDocto
         </div>
       )}
 
-      <div style={{ display:"flex", gap:8, padding:"14px 20px", overflowX:"auto", borderBottom:`1px solid ${C.border}`, background:C.white, position:"sticky", top:0, zIndex:5 }}>
+      {/* Category pills */}
+      <div style={{ display:"flex", gap:8, padding:"12px 16px", overflowX:"auto", borderBottom:`1px solid ${C.border}`, background:C.white, position:"relative", zIndex:5, flexShrink:0 }}>
         <Pill label={s.allCats} active={!activeCat} onClick={() => setActiveCat(null)} />
         {cats.map(cat => (
           <Pill key={cat} label={cat} active={activeCat===cat} onClick={() => setActiveCat(activeCat===cat?null:cat)} />
         ))}
       </div>
 
-      <div style={{ padding:"20px", display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(280px, 1fr))", gap:16 }}>
-        {filtered.length === 0 ? (
-          <div style={{ gridColumn:"1/-1", textAlign:"center", padding:"60px 0", color:C.textSoft, fontSize:14 }}>{s.noResults}</div>
-        ) : (
-          filtered.map(a => (
-            <ArticleCard key={a.id} article={a} lang={lang} s={s} onClick={() => setSelectedArticle(a)} />
-          ))
+      {/* Body with sidebar */}
+      <div style={{ display:"flex", flex:1, overflow:"hidden" }}>
+
+        {/* Magazine Sidebar */}
+        {magSideOpen && (
+          <>
+            {isMobile && (
+              <div onClick={() => setMagSideOpen(false)} style={{
+                position:"fixed", inset:0, background:C.overlay, zIndex:40,
+              }} />
+            )}
+            <aside style={{
+              width:220, flexShrink:0, background:C.white,
+              borderInlineEnd:`1px solid ${C.border}`,
+              display:"flex", flexDirection:"column", overflowY:"auto",
+              ...(isMobile ? {
+                position:"fixed", top:0, bottom:0, insetInlineStart:0,
+                zIndex:50, boxShadow:"0 0 30px rgba(0,0,0,0.14)",
+              } : {}),
+            }}>
+              {/* UX hint */}
+              <div style={{
+                margin:"12px 10px 4px",
+                padding:"8px 10px",
+                background: C.tealBg,
+                borderRadius: 8,
+                border: `1px dashed ${C.tealLight}`,
+                fontSize: 11,
+                color: C.teal,
+                lineHeight: 1.5,
+                textAlign: rtl ? "right" : "left",
+              }}>
+                {lang==="ku"
+                  ? "📖 پسپۆڕی هەڵبژێرە بۆ بینینی وتارەکانی پەیوەندیدار"
+                  : "📖 Select a specialty to find related articles"}
+              </div>
+
+              <div style={{ padding:"8px 14px 4px", fontSize:10, fontWeight:800, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textSoft }}>
+                {s.filter}
+              </div>
+
+              <SideGroup label={s.specialties} isMobile={false} defaultOpen={false}>
+                <SBtn label={s.allSpec} active={!magActiveSp} rtl={rtl}
+                  onClick={() => { setMagActiveSp(null); }} />
+                {specialties.map(sp => (
+                  <SBtn key={sp.id}
+                    label={lang==="ku" ? sp.ku : sp.en}
+                    active={magActiveSp === sp.ku} rtl={rtl}
+                    onClick={() => setMagActiveSp(magActiveSp === sp.ku ? null : sp.ku)}
+                  />
+                ))}
+              </SideGroup>
+
+              <div style={{ height:1, background:C.border, margin:"4px 14px" }} />
+
+              <SideGroup label={s.clinics} isMobile={false} defaultOpen={false}>
+                <SBtn label={s.allClin} active={!magActiveClin} rtl={rtl}
+                  onClick={() => setMagActiveClin(null)} />
+                {magClinics.map(c => (
+                  <SBtn key={c} label={c} active={magActiveClin===c} rtl={rtl}
+                    onClick={() => setMagActiveClin(magActiveClin===c ? null : c)} />
+                ))}
+              </SideGroup>
+            </aside>
+          </>
         )}
+
+        {/* Article content area */}
+        <div style={{ flex:1, overflowY:"auto" }}>
+          {hasFilter ? (
+            /* Filtered view */
+            <div style={{ padding:"20px", display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(280px, 1fr))", gap:16 }}>
+              {filtered.length === 0 ? (
+                <div style={{ gridColumn:"1/-1", textAlign:"center", padding:"60px 0", color:C.textSoft, fontSize:14 }}>{s.noResults}</div>
+              ) : (
+                filtered.map(a => (
+                  <ArticleCard key={a.id} article={a} lang={lang} s={s} onClick={() => setSelectedArticle(a)} />
+                ))
+              )}
+            </div>
+          ) : (
+            /* Default view: Featured + Latest */
+            <div>
+              {/* Featured Articles */}
+              <div style={{ padding:"20px 20px 8px" }}>
+                <div style={{
+                  display:"flex", alignItems:"center", gap:8, marginBottom:14,
+                  flexDirection: rtl ? "row-reverse" : "row",
+                }}>
+                  <span style={{ fontSize:18 }}>⭐</span>
+                  <div style={{ fontSize:15, fontWeight:800, color:C.text, letterSpacing:"-0.01em" }}>
+                    {lang==="ku" ? "وتارە تایبەتەکان" : "Featured Articles"}
+                  </div>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(280px, 1fr))", gap:16 }}>
+                  {featuredArticles.map(a => (
+                    <ArticleCard key={a.id} article={a} lang={lang} s={s} onClick={() => setSelectedArticle(a)} />
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ height:1, background:C.border, margin:"16px 20px" }} />
+
+              {/* Latest Articles */}
+              <div style={{ padding:"0 20px 24px" }}>
+                <div style={{
+                  display:"flex", alignItems:"center", gap:8, marginBottom:14,
+                  flexDirection: rtl ? "row-reverse" : "row",
+                }}>
+                  <span style={{ fontSize:18 }}>🕐</span>
+                  <div style={{ fontSize:15, fontWeight:800, color:C.text, letterSpacing:"-0.01em" }}>
+                    {s.latestArticles}
+                  </div>
+                </div>
+                {latestArticles.length === 0 ? (
+                  <div style={{ color:C.textSoft, fontSize:13, textAlign:"center", padding:"20px 0" }}>
+                    {lang==="ku" ? "وتارەکانی تر دێن بەم زوانە" : "More articles coming soon."}
+                  </div>
+                ) : (
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(280px, 1fr))", gap:16 }}>
+                    {latestArticles.map(a => (
+                      <ArticleCard key={a.id} article={a} lang={lang} s={s} onClick={() => setSelectedArticle(a)} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {selectedArticle && (
@@ -1007,7 +1321,7 @@ function AdminPanel({ lang, s, rtl, doctors, magazineArticles, onDoctorsUpdate, 
     reader.onload = (e) => {
       const parsed = parseCSV(e.target.result);
       if (!parsed) { setCsvStatus("error"); setCsvMsg(s.csvError); return; }
-      onDoctorsUpdate(parsed);
+      onDoctorsUpdate(mergeDoctors(parsed));
       setCsvStatus("success");
       setCsvMsg(`${s.csvUploaded} (${parsed.length} doctors)`);
     };
@@ -1207,7 +1521,7 @@ function AdminPanel({ lang, s, rtl, doctors, magazineArticles, onDoctorsUpdate, 
 }
 
 /* ─── City Selector Modal ─────────────────────────────────────────────────── */
-function CityModal({ lang, s, rtl, onSelect, onClose }) {
+function CityModal({ lang, s, rtl, activeCity, onSelect, onClose }) {
   return (
     <>
       <div onClick={onClose} style={{ position:"fixed", inset:0, background:C.overlay, zIndex:200 }} />
@@ -1221,21 +1535,89 @@ function CityModal({ lang, s, rtl, onSelect, onClose }) {
           {s.citySelect}
         </div>
         <div style={{ maxHeight:320, overflowY:"auto", padding:"6px 0" }}>
+          {/* All Cities option */}
+          <button key="all" onClick={() => { onSelect(null); onClose(); }}
+            style={{
+              display:"flex", alignItems:"center", gap:8,
+              width:"100%", textAlign: rtl?"right":"left",
+              padding:"9px 14px", border:"none", borderRadius:8,
+              background: !activeCity ? C.tealBg : "none",
+              cursor:"pointer", fontSize:13.5,
+              color: !activeCity ? C.teal : C.text,
+              fontWeight: !activeCity ? 700 : 400,
+            }}
+            onMouseEnter={e => { if(activeCity) e.currentTarget.style.background = C.bgSoft; }}
+            onMouseLeave={e => { if(activeCity) e.currentTarget.style.background = "none"; }}
+          >
+            <span>🌐</span>
+            {lang==="ku" ? "هەموو شارەکان" : "All Cities"}
+          </button>
           {ALL_CITIES.map(city => (
             <button key={city} onClick={() => { onSelect(city); onClose(); }}
               style={{
-                display:"block", width:"100%", textAlign: rtl?"right":"left",
+                display:"flex", alignItems:"center", gap:8,
+                width:"100%", textAlign: rtl?"right":"left",
                 padding:"9px 14px", border:"none", borderRadius:8,
-                background:"none", cursor:"pointer", fontSize:13.5,
-                color:C.text, direction:"rtl",
+                background: activeCity===city ? C.tealBg : "none",
+                cursor:"pointer", fontSize:13.5,
+                color: activeCity===city ? C.teal : C.text,
+                fontWeight: activeCity===city ? 700 : 400,
+                direction:"rtl",
               }}
-              onMouseEnter={e => e.currentTarget.style.background = C.bgSoft}
-              onMouseLeave={e => e.currentTarget.style.background = "none"}
+              onMouseEnter={e => { if(activeCity!==city) e.currentTarget.style.background = C.bgSoft; }}
+              onMouseLeave={e => { if(activeCity!==city) e.currentTarget.style.background = "none"; }}
             >{city}</button>
           ))}
         </div>
       </div>
     </>
+  );
+}
+
+/* ─── Search Bar (below navbar, full width) ───────────────────────────────── */
+function SearchBar({ search, setSearch, setActiveSp, setActiveClin, placeholder, rtl }) {
+  const inputRef = useRef(null);
+  return (
+    <div style={{
+      padding: "8px 16px",
+      background: C.white,
+      borderBottom: `1px solid ${C.border}`,
+      flexShrink: 0,
+      zIndex: 20,
+    }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        background: C.bgSoft, borderRadius: 10,
+        border: `1.5px solid ${search ? C.teal : C.border}`,
+        padding: "0 12px", height: 38,
+        transition: "border-color 0.15s",
+        boxShadow: search ? `0 0 0 3px ${C.tealBg}` : "none",
+      }}>
+        <svg width="15" height="15" viewBox="0 0 20 20" fill="none" style={{ flexShrink:0, color: search ? C.teal : C.textSoft }}>
+          <circle cx="8.5" cy="8.5" r="5.75" stroke="currentColor" strokeWidth="1.75"/>
+          <path d="M13 13l3.5 3.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+        </svg>
+        <input
+          ref={inputRef}
+          value={search}
+          onChange={e => { setSearch(e.target.value); setActiveSp(null); setActiveClin(null); }}
+          placeholder={placeholder}
+          dir={rtl ? "rtl" : "ltr"}
+          style={{
+            flex: 1, border: "none", background: "transparent",
+            fontSize: 13, color: C.text, outline: "none",
+            fontFamily: "inherit",
+          }}
+        />
+        {search && (
+          <button onClick={() => { setSearch(""); setActiveSp(null); setActiveClin(null); inputRef.current?.focus(); }} style={{
+            background: "none", border: "none", cursor: "pointer",
+            color: C.textSoft, fontSize: 16, padding: 0, lineHeight: 1,
+            display: "flex", alignItems: "center",
+          }}>×</button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1263,9 +1645,10 @@ export default function YaHakeem() {
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [userCity, setUserCity] = useState(null);
+  const [activeCity, setActiveCity] = useState(null); // global directory city filter
   const [showCityModal, setShowCityModal] = useState(false);
   const [viewMode, setViewMode] = useState("card");
-  const [doctors, setDoctors]   = useState(INITIAL_DOCTORS);
+  const [doctors, setDoctors]   = useState(() => mergeDoctors(INITIAL_DOCTORS));
   const [magazineArticles, setMagazineArticles] = useState(INITIAL_MAGAZINE);
   // Smart link: pre-filter magazine by doctor ID
   const [magazineDocFilter, setMagazineDocFilter] = useState(null);
@@ -1274,15 +1657,22 @@ export default function YaHakeem() {
   const rtl = lang === "ku";
 
   // Detect mobile for sidebar collapse
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 700);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
-    const handler = () => setIsMobile(window.innerWidth < 700);
+    const handler = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) setSideOpen(false);
+    };
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
   }, []);
 
-  const clinics = useMemo(() =>
-    [...new Set(doctors.map(d => d.clinic).filter(Boolean))], [doctors]);
+  // Fix 5a: Clinics filtered by active city
+  const clinics = useMemo(() => {
+    const cityDoctors = activeCity ? doctors.filter(d => d.city === activeCity) : doctors;
+    return [...new Set(cityDoctors.map(d => d.clinic).filter(Boolean))];
+  }, [doctors, activeCity]);
 
   const isDefaultView = !search && !activeSp && !activeClin;
 
@@ -1295,14 +1685,16 @@ export default function YaHakeem() {
         || d.clinic.includes(q) || d.city.includes(q);
       const msp = !activeSp   || d.specialty_ku === activeSp;
       const mc  = !activeClin || d.clinic === activeClin;
-      return mq && msp && mc;
+      // Fix 5b: activeCity applies regardless of specialty/clinic filter
+      const mcity = !activeCity || d.city === activeCity;
+      return mq && msp && mc && mcity;
     });
     if (isDefaultView) {
       if (userCity) result = result.filter(d => d.city === userCity);
       result = [...result].sort((a,b) => b.kcs - a.kcs).slice(0, 10);
     }
     return result;
-  }, [search, activeSp, activeClin, isDefaultView, userCity, doctors]);
+  }, [search, activeSp, activeClin, activeCity, isDefaultView, userCity, doctors]);
 
   const activeSpecialty = useMemo(() =>
     activeSp ? specialties.find(sp => sp.ku === activeSp) : null,
@@ -1311,19 +1703,29 @@ export default function YaHakeem() {
   const handleSidebarSp = useCallback((spKu) => {
     setActiveSp(spKu === activeSp ? null : spKu);
     setActiveClin(null); setSearch("");
-  }, [activeSp]);
+    if (isMobile) setSideOpen(false);
+  }, [activeSp, isMobile]);
 
   const handleSidebarClin = useCallback((clin) => {
     setActiveClin(clin === activeClin ? null : clin);
     setActiveSp(null); setSearch("");
-  }, [activeClin]);
+    if (isMobile) setSideOpen(false);
+  }, [activeClin, isMobile]);
 
-  const handleNavHome = () => { setActiveSp(null); setActiveClin(null); setSearch(""); };
+  const handleNavHome = () => { setActiveSp(null); setActiveClin(null); setSearch(""); if (isMobile) setSideOpen(false); };
 
   // Smart link handler: go to magazine pre-filtered by doctor id
   const handleGoToMagazine = useCallback((docId) => {
     setMagazineDocFilter(docId);
     setPage("magazine");
+  }, []);
+
+  // Go to directory filtered by specialty
+  const handleGoSpecialty = useCallback((spKu) => {
+    setPage("directory");
+    setActiveSp(spKu);
+    setActiveClin(null);
+    setSearch("");
   }, []);
 
   // Show sidebar only on directory pages
@@ -1334,6 +1736,7 @@ export default function YaHakeem() {
       display:"flex", flexDirection:"column", height:"100vh",
       fontFamily:"'Segoe UI', Tahoma, system-ui, sans-serif",
       background:C.bgPage, color:C.text,
+      overflow: isMobile && sideOpen ? "hidden" : "auto",
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600&display=swap');
@@ -1342,6 +1745,8 @@ export default function YaHakeem() {
         ::-webkit-scrollbar{width:5px;height:5px}
         ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:10px}
         [dir="rtl"]{font-family:'Noto Sans Arabic','Segoe UI',sans-serif}
+        [dir="rtl"] .ya-sidebar { border-right: none !important; border-left: 1px solid ${C.border} !important; }
+        [dir="ltr"] .ya-sidebar { border-left: none !important; border-right: 1px solid ${C.border} !important; }
       `}</style>
 
       {/* Navbar */}
@@ -1350,17 +1755,21 @@ export default function YaHakeem() {
         padding:"0 16px", height:52, flexShrink:0,
         background:C.white, borderBottom:`1px solid ${C.border}`,
         boxShadow:"0 1px 4px rgba(0,0,0,0.07)", zIndex:30,
-        flexDirection: rtl ? "row-reverse" : "row",
       }}>
-        {/* Hamburger — only when sidebar is visible */}
+        {/* Hamburger — shown whenever sidebar is available */}
         {showSidebar && (
-          <button onClick={() => setSideOpen(p => !p)} style={{
-            display:"flex", flexDirection:"column", gap:4,
-            background:"none", border:"none", cursor:"pointer", padding:5,
+          <button onClick={() => setSideOpen(p => !p)} title="Toggle sidebar" style={{
+            display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center", gap:4,
+            background: sideOpen ? C.tealBg : "none", border:`1px solid ${sideOpen ? C.tealLight : "transparent"}`,
+            borderRadius:7, cursor:"pointer", padding:"5px 7px", width:34, height:34, flexShrink:0,
+            transition:"all 0.15s",
           }}>
-            {[0,1,2].map(i => (
-              <span key={i} style={{ display:"block", width:18, height:1.5, background:C.textMid, borderRadius:2 }} />
-            ))}
+            {sideOpen
+              ? <span style={{ fontSize:16, color:C.teal, lineHeight:1 }}>✕</span>
+              : [0,1,2].map(i => (
+                  <span key={i} style={{ display:"block", width:16, height:1.5, background:C.textMid, borderRadius:2 }} />
+                ))
+            }
           </button>
         )}
 
@@ -1375,50 +1784,36 @@ export default function YaHakeem() {
             fontSize:13, color:"#fff", fontWeight:700,
           }}>✦</div>
           <span style={{ fontSize:17, fontWeight:700, color:C.teal, letterSpacing:"-0.02em" }}>{s.brand}</span>
-          <span style={{ fontSize:10, color:C.textSoft, letterSpacing:"0.06em", textTransform:"uppercase" }}>{s.tag}</span>
         </button>
 
         {/* Nav tabs */}
-        <div style={{ display:"flex", gap:4, marginInlineStart:8 }}>
-          <NavTab label={s.home}      active={page==="home"}      onClick={() => { setPage("home"); handleNavHome(); }} />
-          <NavTab label={s.directory} active={page==="directory"} onClick={() => setPage("directory")} />
-          <NavTab label={s.magazine}  active={page==="magazine"}  onClick={() => { setPage("magazine"); setMagazineDocFilter(null); }} />
-          <NavTab label={s.admin}     active={page==="admin"}     onClick={() => setPage("admin")} />
+        <div style={{ display:"flex", gap:2, marginInlineStart:isMobile ? 0 : 8, flexShrink:0 }}>
+          <NavTab label={isMobile ? "🏠" : s.home}      active={page==="home"}      onClick={() => { setPage("home"); handleNavHome(); }} />
+          <NavTab label={isMobile ? "📋" : s.directory} active={page==="directory"} onClick={() => setPage("directory")} />
+          <NavTab label={isMobile ? "📖" : s.magazine}  active={page==="magazine"}  onClick={() => { setPage("magazine"); setMagazineDocFilter(null); }} />
         </div>
 
-        {/* Search (only in directory) */}
-        {page === "directory" && (
-          <div style={{ flex:1, maxWidth:380, margin:"0 8px" }}>
-            <input
-              value={search}
-              onChange={e => { setSearch(e.target.value); setActiveSp(null); setActiveClin(null); }}
-              placeholder={s.search}
-              dir={rtl ? "rtl" : "ltr"}
-              style={{
-                width:"100%", height:33, padding: rtl ? "0 12px 0 10px" : "0 10px 0 12px",
-                fontSize:13, border:`1px solid ${C.border}`,
-                borderRadius:8, background:C.bgSoft, color:C.text, outline:"none",
-              }}
-              onFocus={e => { e.target.style.borderColor=C.teal; e.target.style.boxShadow=`0 0 0 3px ${C.tealBg}`; }}
-              onBlur={e =>  { e.target.style.borderColor=C.border; e.target.style.boxShadow="none"; }}
-            />
-          </div>
-        )}
+        {/* Spacer */}
+        <div style={{ flex:1 }} />
 
         {/* City button */}
-        {page === "directory" && isDefaultView && (
+        {page === "directory" && (
           <button onClick={() => setShowCityModal(true)} style={{
             padding:"4px 11px", fontSize:12, fontWeight:600,
             border:`1px solid ${C.border}`, borderRadius:7,
-            background:C.bgSoft, color:C.textMid, cursor:"pointer",
+            background: activeCity ? C.tealBg : C.bgSoft,
+            color: activeCity ? C.teal : C.textMid,
+            cursor:"pointer",
             whiteSpace:"nowrap", maxWidth:120, overflow:"hidden", textOverflow:"ellipsis",
+            display:"flex", alignItems:"center", gap:4,
           }}>
-            {userCity || s.citySelect}
+            <span style={{ fontSize:11 }}>📍</span>
+            {activeCity || s.city}
           </button>
         )}
 
         {/* Count */}
-        {page === "directory" && (
+        {page === "directory" && !isMobile && (
           <span style={{
             fontSize:12, color:C.textSoft, whiteSpace:"nowrap",
             background:C.bgSoft, border:`1px solid ${C.border}`,
@@ -1442,57 +1837,129 @@ export default function YaHakeem() {
           </div>
         )}
 
-        <LangBtn label={s.toggle} onClick={() => setLang(l => l==="en"?"ku":"en")} />
+        {!isMobile && <LangBtn label={s.toggle} onClick={() => setLang(l => l==="en"?"ku":"en")} />}
       </header>
 
       {/* Body */}
-      <div style={{ display:"flex", flex:1, overflow:"hidden", flexDirection: rtl ? "row-reverse" : "row" }}>
+      <div style={{ display:"flex", flex:1, overflow:"hidden" }}>
 
         {/* Sidebar — only on directory page */}
         {showSidebar && (
-          <aside style={{
-            width: sideOpen ? 220 : 0, flexShrink:0, overflow:"hidden",
-            background:C.white,
-            borderRight: rtl ? "none" : `1px solid ${C.border}`,
-            borderLeft:  rtl ? `1px solid ${C.border}` : "none",
-            display:"flex", flexDirection:"column",
-            transition:"width 0.22s ease",
-          }}>
-            <div style={{ width:220, display:"flex", flexDirection:"column", height:"100%", overflow:"hidden" }}>
-              <div style={{
-                padding:"10px 14px 8px", fontSize:10, fontWeight:700,
-                letterSpacing:"0.08em", textTransform:"uppercase",
-                color:C.textSoft, borderBottom:`1px solid ${C.border}`, flexShrink:0,
-              }}>{s.filter}</div>
+          <>
+            {/* Mobile overlay backdrop */}
+            {isMobile && sideOpen && (
+              <div onClick={() => setSideOpen(false)} style={{
+                position:"fixed", inset:0, background:C.overlay, zIndex:40,
+              }} />
+            )}
+            <aside className="ya-sidebar" style={{
+              // Desktop: inline; Mobile: fixed overlay
+              ...(isMobile ? {
+                position:"fixed",
+                top:52, bottom:0,
+                insetInlineStart:0,
+                zIndex:50,
+                transform: sideOpen ? "translateX(0)" : (rtl ? "translateX(100%)" : "translateX(-100%)"),
+                transition:"transform 0.26s cubic-bezier(0.22,1,0.36,1)",
+              } : {
+                width: sideOpen ? 230 : 0,
+                flexShrink:0,
+                overflow:"hidden",
+                transition:"width 0.22s ease",
+              }),
+              width: 230,
+              background:"#fff",
+              borderInlineEnd: `1px solid ${C.border}`,
+              display:"flex", flexDirection:"column",
+              boxShadow: isMobile && sideOpen ? "0 0 30px rgba(0,0,0,0.14)" : "none",
+            }}>
+              <div style={{ width:230, display:"flex", flexDirection:"column", height:"100%", overflow:"hidden" }}>
 
-              <div style={{ overflowY:"auto", flex:1, paddingBottom:16, paddingTop:6 }}>
-                <SideGroup label={s.specialties} isMobile={isMobile}>
-                  <SBtn label={s.allSpec} active={!activeSp} rtl={rtl} onClick={() => { setActiveSp(null); setSearch(""); }} />
-                  {specialties.map(sp => (
-                    <SBtn key={sp.id}
-                      label={lang==="ku" ? sp.ku : sp.en}
-                      active={activeSp === sp.ku} rtl={rtl}
-                      onClick={() => handleSidebarSp(sp.ku)}
-                    />
-                  ))}
-                </SideGroup>
+                {/* Mobile: Language toggle at very top of sidebar */}
+                {isMobile && (
+                  <div style={{
+                    padding:"10px 14px", borderBottom:`1px solid ${C.border}`,
+                    flexShrink:0, display:"flex", alignItems:"center",
+                    justifyContent: rtl ? "flex-start" : "flex-end",
+                    background: C.tealBg,
+                  }}>
+                    <LangBtn label={s.toggle} onClick={() => setLang(l => l==="en"?"ku":"en")} />
+                  </div>
+                )}
 
-                <div style={{ height:1, background:C.border, margin:"6px 14px" }} />
+                {/* Filter header */}
+                <div style={{
+                  padding:"10px 14px 8px",
+                  display:"flex", alignItems:"center", justifyContent:"space-between",
+                  borderBottom:`1px solid ${C.border}`, flexShrink:0,
+                }}>
+                  <span style={{ fontSize:10, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", color:C.textSoft }}>
+                    {s.filter}
+                  </span>
+                </div>
 
-                <SideGroup label={s.clinics} isMobile={isMobile}>
-                  <SBtn label={s.allClin} active={!activeClin} rtl={rtl} onClick={() => { setActiveClin(null); setSearch(""); }} />
-                  {clinics.map(c => (
-                    <SBtn key={c} label={c} active={activeClin===c} rtl={rtl}
-                      onClick={() => handleSidebarClin(c)} />
-                  ))}
-                </SideGroup>
+                <div style={{ overflowY:"auto", flex:1, paddingBottom:16, paddingTop:6 }}>
+
+                  {/* Fix 3/UX hint for sidebar: a small banner encouraging users to explore */}
+                  {!activeSp && !activeClin && (
+                    <div style={{
+                      margin:"8px 12px 10px",
+                      padding:"7px 10px",
+                      background: C.tealBg,
+                      borderRadius: 8,
+                      border: `1px dashed ${C.tealLight}`,
+                      fontSize: 11,
+                      color: C.teal,
+                      lineHeight: 1.5,
+                      textAlign: rtl ? "right" : "left",
+                    }}>
+                      💡 {lang === "ku"
+                        ? "پسپۆڕی یان کلینیک هەڵبژێرە بۆ فلتەرکردنی پزیشکان"
+                        : "Select a specialty or clinic to filter doctors"}
+                    </div>
+                  )}
+
+                  {/* Fix 7: specialties collapsed by default (defaultOpen=false), clinics also collapsed */}
+                  <SideGroup label={s.specialties} isMobile={isMobile} defaultOpen={false}>
+                    <SBtn label={s.allSpec} active={!activeSp} rtl={rtl} onClick={() => { setActiveSp(null); setSearch(""); }} />
+                    {specialties.map(sp => (
+                      <SBtn key={sp.id}
+                        label={lang==="ku" ? sp.ku : sp.en}
+                        active={activeSp === sp.ku} rtl={rtl}
+                        onClick={() => handleSidebarSp(sp.ku)}
+                      />
+                    ))}
+                  </SideGroup>
+
+                  <div style={{ height:1, background:C.border, margin:"6px 14px" }} />
+
+                  <SideGroup label={s.clinics} isMobile={isMobile} defaultOpen={false}>
+                    <SBtn label={s.allClin} active={!activeClin} rtl={rtl} onClick={() => { setActiveClin(null); setSearch(""); }} />
+                    {clinics.map(c => (
+                      <SBtn key={c} label={c} active={activeClin===c} rtl={rtl}
+                        onClick={() => handleSidebarClin(c)} />
+                    ))}
+                  </SideGroup>
+                </div>
               </div>
-            </div>
-          </aside>
+            </aside>
+          </>
         )}
 
         {/* Main content area */}
         <main style={{ flex:1, overflow:"hidden", background:C.white, display:"flex", flexDirection:"column" }}>
+
+          {/* Search bar below navbar — only for directory */}
+          {page === "directory" && (
+            <SearchBar
+              search={search}
+              setSearch={setSearch}
+              setActiveSp={setActiveSp}
+              setActiveClin={setActiveClin}
+              placeholder={s.search}
+              rtl={rtl}
+            />
+          )}
 
           {page === "home" && (
             <HomePage
@@ -1503,16 +1970,17 @@ export default function YaHakeem() {
               onArticleClick={setSelectedArticle}
               onGoDirectory={() => setPage("directory")}
               onGoMagazine={() => { setPage("magazine"); setMagazineDocFilter(null); }}
+              onGoSpecialty={handleGoSpecialty}
             />
           )}
 
           {page === "magazine" && (
             <MagazinePage
               lang={lang} s={s} rtl={rtl}
-              activeSp={activeSp}
               magazineArticles={magazineArticles}
               preFilterDoctorId={magazineDocFilter}
               onClearDocFilter={() => setMagazineDocFilter(null)}
+              doctors={doctors}
             />
           )}
 
@@ -1535,6 +2003,7 @@ export default function YaHakeem() {
                     doctors={doctors}
                     lang={lang} s={s} rtl={rtl}
                     onDoctorClick={setSelectedDoc}
+                    activeCity={activeCity}
                   />
                 </div>
               ) : activeClin && !search ? (
@@ -1630,7 +2099,8 @@ export default function YaHakeem() {
       {showCityModal && (
         <CityModal
           lang={lang} s={s} rtl={rtl}
-          onSelect={setUserCity}
+          activeCity={activeCity}
+          onSelect={(city) => { setActiveCity(city); setUserCity(city); }}
           onClose={() => setShowCityModal(false)}
         />
       )}
